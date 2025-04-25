@@ -66,7 +66,7 @@
     </div>
     <div id="gameOver">
         <h2>Koniec gry!</h2>
-        <div>Twój wynik: <span id="finalScore">0</span></div>
+        <p id="gameOverMessage"></p>
         <div>Przebyty dystans: <span id="finalDistance">0</span> m</div>
         <button id="restartButton">Zagraj ponownie</button>
     </div>
@@ -89,7 +89,9 @@
         let car, road;
         let obstacles = [];
         let trees = [];
-        let clouds = []; // Tablica do przechowywania chmur
+        let clouds = [];
+        let frustum = new THREE.Frustum();
+        let cameraMatrix = new THREE.Matrix4();
         let carPosition = 0;
         let moveSpeed = 0.15;
         let gameSpeed = 0.2;
@@ -110,10 +112,17 @@
         let isInitialized = false;
         let isGameStarted = false;
         let engineSound, crashSound;
+        let playerName = '';
+        let treeInstances = []; // Tablica na instancje drzew
+        let cloudInstancesList = []; // Zmieniamy nazwę na cloudInstancesList
+        let treeGeometry, treeMaterial; // Geometria i materiał dla drzew
+        let cloudGeometry, cloudMaterial; // Geometria i materiał dla chmur
+        // Systemy cząsteczek
+        let exhaustParticlesSystem;
 
         // Parametry chmur
         let cloudParallaxFactor = 0.01; 
-        let cloudSpawnInterval = 10; 
+        let cloudSpawnInterval = 7.5;
         let timeSinceLastCloud = 0;
 
         // Inicjalizacja dźwięków
@@ -139,79 +148,170 @@
             }
         }
 
-        // Funkcja tworząca pojedynczą chmurę (PRZYWRÓCONY KSZTAŁT)
-        function createSingleCloud(x, y, z, scale) {
-            const cloudGroup = new THREE.Group();
-            const cloudMaterial = new THREE.MeshBasicMaterial({ 
-                color: 0xffffff, 
-                transparent: true, 
-                opacity: 0.6, // Większa przezroczystość
-                side: THREE.DoubleSide // Na wszelki wypadek
-            }); 
-            const sphereGeometry = new THREE.SphereGeometry(5, 16, 8); // Mniej segmentów dla wydajności
+        // Tworzenie instancji drzewa
+        function createTreeInstance() {
+            // Geometria pnia
+            const trunkGeometry = new THREE.CylinderGeometry(0.5, 0.7, 3, 8);
+            // Geometria korony
+            const leavesGeometry = new THREE.ConeGeometry(2.5, 5, 8);
             
-            const sphereCount = 15 + Math.floor(Math.random() * 10); // 15-24 sfery
-            for (let i = 0; i < sphereCount; i++) {
-                const sphere = new THREE.Mesh(sphereGeometry, cloudMaterial);
-                
-                // Rozmieszczenie sfer w obrębie chmury
-                const offsetX = (Math.random() - 0.5) * 15 * scale;
-                const offsetY = (Math.random() - 0.5) * 5 * scale;
-                const offsetZ = (Math.random() - 0.5) * 10 * scale;
-                sphere.position.set(offsetX, offsetY, offsetZ);
-                
-                // Różne rozmiary sfer
-                const sphereScale = 0.3 + Math.random() * 0.7;
-                sphere.scale.set(sphereScale, sphereScale, sphereScale);
-                
-                cloudGroup.add(sphere);
-            }
+            // Materiały
+            const trunkMaterial = new THREE.MeshStandardMaterial({ color: 0x8B4513 });
+            const leavesMaterial = new THREE.MeshStandardMaterial({ color: 0x228B22 });
             
-            cloudGroup.position.set(x, y, z);
-            // Nie skalujemy już całej grupy, tylko poszczególne sfery i ich rozmieszczenie
-            // cloudGroup.scale.set(scale, scale, scale);
-            
-            clouds.push(cloudGroup); // Dodajemy grupę do tablicy
-            return cloudGroup;
+            return {
+                trunkGeometry,
+                leavesGeometry,
+                trunkMaterial,
+                leavesMaterial
+            };
         }
 
-        // Dodanie chmur (PRZYBLIŻONE POZYCJE POCZĄTKOWE)
-        function createClouds() {
-            console.log('Tworzenie chmur (sfery, bliżej)...');
+        // Dodawanie drzew na poboczu z użyciem instanced geometry
+        function addTrees() {
+            // Tworzymy instancje drzewa
+            const treeInstance = createTreeInstance();
+            treeGeometry = treeInstance.trunkGeometry;
+            treeMaterial = treeInstance.trunkMaterial;
             
-            clouds = []; 
+            // Tworzymy instancje dla pni i koron
+            const trunkInstances = new THREE.InstancedMesh(treeGeometry, treeMaterial, 100);
+            const leavesInstances = new THREE.InstancedMesh(treeInstance.leavesGeometry, treeInstance.leavesMaterial, 100);
+            
+            const matrix = new THREE.Matrix4();
+            let instanceCount = 0;
+            
+            for (let z = -1000; z < 1000; z += 40) {
+                // Lewa strona
+                matrix.setPosition(-roadWidth - 5 - Math.random() * 10, 0, z + Math.random() * 20);
+                trunkInstances.setMatrixAt(instanceCount, matrix);
+                matrix.setPosition(-roadWidth - 5 - Math.random() * 10, 5, z + Math.random() * 20);
+                leavesInstances.setMatrixAt(instanceCount, matrix);
+                
+                // Prawa strona
+                matrix.setPosition(roadWidth + 5 + Math.random() * 10, 0, z + Math.random() * 20);
+                trunkInstances.setMatrixAt(instanceCount + 1, matrix);
+                matrix.setPosition(roadWidth + 5 + Math.random() * 10, 5, z + Math.random() * 20);
+                leavesInstances.setMatrixAt(instanceCount + 1, matrix);
+                
+                instanceCount += 2;
+            }
+            
+            trunkInstances.count = instanceCount;
+            leavesInstances.count = instanceCount;
+            
+            scene.add(trunkInstances);
+            scene.add(leavesInstances);
+            treeInstances.push(trunkInstances, leavesInstances);
+        }
 
-            const initialCloudPositions = [
-                // Zbliżamy zakres Z, np. 200-400
-                { x: -50, y: 30, z: 200, scale: 1.0 }, 
-                { x: 50, y: 35, z: 250, scale: 1.2 },
-                { x: -70, y: 40, z: 300, scale: 1.1 }, 
-                { x: 70, y: 32, z: 350, scale: 1.3 }, 
-                { x: -40, y: 38, z: 400, scale: 1.0 },
-            ];
+        // Tworzenie instancji chmury - naturalny kształt
+        function createCloudInstance() {
+            // Tworzymy teksturę chmury - bardziej naturalna
+            const canvas = document.createElement('canvas');
+            canvas.width = 300;  // Szersze dla lepszego kształtu
+            canvas.height = 150; // Wyższe dla bardziej naturalnego wyglądu
+            const ctx = canvas.getContext('2d');
             
-            initialCloudPositions.forEach(pos => {
-                const initialCloud = createSingleCloud(pos.x, pos.y, pos.z, pos.scale);
-                scene.add(initialCloud);
+            // Czyszczenie canvas
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            
+            // Rysujemy prostszy, bardziej naturalny kształt chmury
+            ctx.beginPath();
+            
+            // Główny kształt - podstawa chmury
+            ctx.moveTo(50, 100);
+            ctx.bezierCurveTo(50, 130, 80, 130, 110, 120);
+            ctx.bezierCurveTo(140, 130, 200, 130, 230, 110);
+            ctx.bezierCurveTo(260, 130, 280, 110, 280, 80);
+            ctx.bezierCurveTo(290, 50, 260, 30, 230, 40);
+            ctx.bezierCurveTo(220, 20, 170, 20, 150, 30);
+            ctx.bezierCurveTo(130, 10, 80, 20, 70, 40);
+            ctx.bezierCurveTo(30, 30, 20, 70, 50, 100);
+            
+            // Wypełniamy chmurę na biało
+            ctx.fillStyle = 'white';
+            ctx.fill();
+            
+            // Dodajemy jasnoniebieski kontur
+            ctx.strokeStyle = '#6ab7ff';
+            ctx.lineWidth = 3;
+            ctx.stroke();
+            
+            const texture = new THREE.CanvasTexture(canvas);
+            
+            // Materiał chmury
+            const material = new THREE.MeshBasicMaterial({ 
+                map: texture,
+                transparent: true,
+                side: THREE.DoubleSide
             });
-            console.log('Początkowe chmury zostały utworzone');
+            
+            // Geometria
+            const geometry = new THREE.PlaneGeometry(1, 1);
+            
+            return {
+                geometry,
+                material
+            };
         }
 
-        // Tworzenie nowej chmury (PRZYBLIŻONE POZYCJE POCZĄTKOWE)
-        function spawnNewCloud() {
-            if (!scene) {
-                console.error('Scena nie jest jeszcze zainicjalizowana');
-                return;
+        // Tworzenie chmur jako płaskich tekstur na niebie
+        function createClouds() {
+            console.log('Chmury jak naturalne obłoki...');
+            
+            // Czyścimy poprzednie chmury
+            cloudInstancesList.forEach(cloud => {
+                scene.remove(cloud);
+            });
+            cloudInstancesList = [];
+            
+            const cloudInstance = createCloudInstance();
+            const cloudGeometry = cloudInstance.geometry;
+            const cloudMaterial = cloudInstance.material;
+            
+            // Tworzymy chmury rozłożone na niebie
+            for (let i = 0; i < 25; i++) {
+                const cloud = new THREE.Mesh(cloudGeometry, cloudMaterial);
+                
+                // Pozycja
+                cloud.position.x = (Math.random() - 0.5) * 800;
+                cloud.position.y = 80 + Math.random() * 100;
+                cloud.position.z = -200 + Math.random() * 1000;
+                
+                // Różne rozmiary chmur
+                const scale = 30 + Math.random() * 120;
+                cloud.scale.set(scale, scale / 2, 1);
+                
+                // Mniejszy, bardziej naturalny rozrzut obrotu
+                cloud.rotation.z = (Math.random() - 0.5) * 0.5; // Mniej skręcone
+                
+                scene.add(cloud);
+                cloudInstancesList.push(cloud);
             }
-            const x = (Math.random() - 0.5) * 250; 
-            const y = 30 + Math.random() * 20; // Nieco wyżej
-            // Zbliżamy zakres Z, np. 400-600
-            const z = 400 + Math.random() * 200; 
-            const scale = 1.0 + Math.random() * 0.5; // Skala wpływa teraz na rozmiar i rozłożenie sfer
+        }
 
-            console.log('Tworzenie nowej chmury na:', x, y, z);
-            const newCloud = createSingleCloud(x, y, z, scale);
-            scene.add(newCloud);
+        // Tworzenie nowej chmury
+        function spawnNewCloud() {
+            if (!scene) return;
+            
+            const cloudInstance = createCloudInstance();
+            const cloud = new THREE.Mesh(cloudInstance.geometry, cloudInstance.material);
+            
+            // Pozycja
+            cloud.position.x = (Math.random() - 0.5) * 800;
+            cloud.position.y = 80 + Math.random() * 100;
+            cloud.position.z = 800;
+            
+            // Różne rozmiary chmur
+            const scale = 30 + Math.random() * 120;
+            cloud.scale.set(scale, scale / 2, 1);
+            
+            // Mniejszy, bardziej naturalny rozrzut obrotu
+            cloud.rotation.z = (Math.random() - 0.5) * 0.5; // Mniej skręcone
+            
+            scene.add(cloud);
+            cloudInstancesList.push(cloud);
         }
         
         // Tworzenie drogi
@@ -312,6 +412,12 @@
                 color: 0xffffff,
                 emissive: 0xffffff,
                 emissiveIntensity: 1.0
+            });
+            
+            const exhaustMaterial = new THREE.MeshStandardMaterial({ 
+                color: 0x333333,
+                metalness: 0.9,
+                roughness: 0.3
             });
             
             // Nadwozie główne
@@ -434,6 +540,20 @@
             rightTaillight.position.set(carWidth/2, 0.3, -carLength/2);
             car.add(rightTaillight);
             
+            // Dodajemy rurę wydechową
+            const exhaustPipeGeometry = new THREE.CylinderGeometry(0.1, 0.1, 0.4, 8);
+            exhaustPipeGeometry.rotateX(Math.PI / 2); // Obróć, aby cylinder był poziomo
+            const exhaustPipe = new THREE.Mesh(exhaustPipeGeometry, exhaustMaterial);
+            exhaustPipe.position.set(carWidth/4, 0.25, -carLength/2 - 0.1); // Umieść z tyłu samochodu
+            car.add(exhaustPipe);
+            
+            // Dodajemy zakończenie rury wydechowej
+            const exhaustTipGeometry = new THREE.CylinderGeometry(0.12, 0.1, 0.1, 8);
+            exhaustTipGeometry.rotateX(Math.PI / 2);
+            const exhaustTip = new THREE.Mesh(exhaustTipGeometry, chromeMaterial);
+            exhaustTip.position.set(carWidth/4, 0.25, -carLength/2 - 0.25);
+            car.add(exhaustTip);
+            
             // Lusterka
             const mirrorGeometry = new THREE.BoxGeometry(0.1, 0.1, 0.2);
             
@@ -449,37 +569,6 @@
             car.position.set(0, 0.75, 0);
             scene.add(car);
             isInitialized = true;
-        }
-        
-        // Dodawanie drzew na poboczu
-        function addTrees() {
-            for (let z = -1000; z < 1000; z += 40) {
-                createTree(-roadWidth - 5 - Math.random() * 10, 0, z + Math.random() * 20);
-                createTree(roadWidth + 5 + Math.random() * 10, 0, z + Math.random() * 20);
-            }
-        }
-        
-        // Tworzenie pojedynczego drzewa
-        function createTree(x, y, z) {
-            const treeGroup = new THREE.Group();
-            
-            const trunkGeometry = new THREE.CylinderGeometry(0.5, 0.7, 3, 8);
-            const trunkMaterial = new THREE.MeshStandardMaterial({ color: 0x8B4513 });
-            const trunk = new THREE.Mesh(trunkGeometry, trunkMaterial);
-            trunk.position.y = 1.5;
-            trunk.castShadow = true;
-            treeGroup.add(trunk);
-            
-            const leafGeometry = new THREE.ConeGeometry(2.5, 5, 8);
-            const leafMaterial = new THREE.MeshStandardMaterial({ color: 0x228B22 });
-            const leaves = new THREE.Mesh(leafGeometry, leafMaterial);
-            leaves.position.y = 5;
-            leaves.castShadow = true;
-            treeGroup.add(leaves);
-            
-            treeGroup.position.set(x, y, z);
-            scene.add(treeGroup);
-            trees.push(treeGroup);
         }
         
         // Tworzenie przeszkody
@@ -541,13 +630,142 @@
             return false;
         }
         
-        // Główna pętla animacji (BEZ ZMIAN W RUCHU - tylko materiał chmur się zmienił)
+        // Funkcja sprawdzająca widoczność obiektu
+        function isObjectVisible(object) {
+            if (!object || !object.position) return false;
+            
+            // Tworzymy bounding sphere dla obiektu
+            const boundingSphere = new THREE.Sphere();
+            if (object instanceof THREE.Group) {
+                // Dla grupy (chmury) używamy większego promienia
+                boundingSphere.set(object.position, 10);
+            } else {
+                // Dla drzew używamy mniejszego promienia
+                boundingSphere.set(object.position, 3);
+            }
+            
+            // Sprawdzamy czy sphere przecina się z frustum
+            return frustum.intersectsSphere(boundingSphere);
+        }
+
+        // Tworzenie systemu cząsteczek dla spalin z rury wydechowej
+        function createExhaustParticles() {
+            // Tekstura cząsteczki spalin
+            const canvas = document.createElement('canvas');
+            canvas.width = 32;
+            canvas.height = 32;
+            const ctx = canvas.getContext('2d');
+            
+            // Gradient dla cząsteczki spalin
+            const gradient = ctx.createRadialGradient(16, 16, 0, 16, 16, 16);
+            gradient.addColorStop(0, 'rgba(100, 100, 100, 0.7)'); // Mniejsza nieprzezroczystość
+            gradient.addColorStop(0.3, 'rgba(70, 70, 70, 0.4)');  // Mniejsza nieprzezroczystość
+            gradient.addColorStop(0.7, 'rgba(40, 40, 40, 0.2)');  // Mniejsza nieprzezroczystość
+            gradient.addColorStop(1, 'rgba(20, 20, 20, 0)');
+            
+            ctx.fillStyle = gradient;
+            ctx.fillRect(0, 0, 32, 32);
+            
+            const texture = new THREE.CanvasTexture(canvas);
+            
+            // Geometria i materiał dla systemu cząsteczek
+            const geometry = new THREE.BufferGeometry();
+            const material = new THREE.PointsMaterial({
+                size: 1.5, // Mniejszy rozmiar cząsteczek
+                map: texture,
+                transparent: true,
+                opacity: 0.5, // Zmniejszona ogólna nieprzezroczystość
+                depthWrite: false
+            });
+            
+            const positions = new Float32Array(50 * 3); // Zmniejszone z 100 na 50 cząsteczek
+            const velocities = new Float32Array(50 * 3);
+            const lifetimes = new Float32Array(50);
+            
+            for (let i = 0; i < 50; i++) {
+                positions[i * 3] = 0; 
+                positions[i * 3 + 1] = 0;
+                positions[i * 3 + 2] = 0;
+                
+                velocities[i * 3] = (Math.random() - 0.5) * 0.05; // Mniejsza prędkość pozioma
+                velocities[i * 3 + 1] = Math.random() * 0.05;     // Mniejsza prędkość pionowa
+                velocities[i * 3 + 2] = -Math.random() * 0.3 - 0.3; // Mniejsza prędkość w tył
+                
+                lifetimes[i] = Math.random() * 1.5; // Krótszy czas życia
+            }
+            
+            geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+            
+            // Tworzenie systemu cząsteczek
+            exhaustParticlesSystem = new THREE.Points(geometry, material);
+            exhaustParticlesSystem.userData = {
+                velocities: velocities,
+                lifetimes: lifetimes,
+                maxLifetimes: lifetimes.slice(),
+                positions: positions
+            };
+            
+            scene.add(exhaustParticlesSystem);
+        }
+        
+        // Aktualizacja pozycji cząsteczek spalin - dopasowanie do rury wydechowej
+        function updateExhaustParticles(delta) {
+            if (!exhaustParticlesSystem || !car) return;
+            
+            const positions = exhaustParticlesSystem.geometry.attributes.position.array;
+            const velocities = exhaustParticlesSystem.userData.velocities;
+            const lifetimes = exhaustParticlesSystem.userData.lifetimes;
+            const maxLifetimes = exhaustParticlesSystem.userData.maxLifetimes;
+            
+            // Pozyskanie pozycji rury wydechowej (dokładnie z tyłu samochodu)
+            const exhaustPosition = new THREE.Vector3();
+            exhaustPosition.set(
+                car.position.x + carWidth/4, // Pozycja rury wydechowej po prawej stronie
+                car.position.y + 0.25,       // Wysokość rury wydechowej
+                car.position.z - carLength/2 - 0.3 // Tył samochodu, za końcówką rury
+            );
+            
+            // Aktualizacja pozycji i czasu życia cząsteczek
+            for (let i = 0; i < 50; i++) { // Aktualizacja dla mniejszej liczby cząsteczek
+                lifetimes[i] -= delta;
+                
+                // Jeśli cząsteczka "umarła", zresetuj ją z 50% szansą (rzadsze tworzenie nowych)
+                if (lifetimes[i] <= 0 && Math.random() < 0.5) {
+                    positions[i * 3] = exhaustPosition.x + (Math.random() - 0.5) * 0.1;
+                    positions[i * 3 + 1] = exhaustPosition.y + (Math.random() - 0.5) * 0.1;
+                    positions[i * 3 + 2] = exhaustPosition.z + (Math.random() - 0.5) * 0.1;
+                    
+                    velocities[i * 3] = (Math.random() - 0.5) * 0.05;
+                    velocities[i * 3 + 1] = Math.random() * 0.05;
+                    velocities[i * 3 + 2] = -Math.random() * 0.3 - 0.3;
+                    
+                    lifetimes[i] = maxLifetimes[i];
+                } else if (lifetimes[i] > 0) {
+                    // Aktualizuj pozycję na podstawie prędkości
+                    positions[i * 3] += velocities[i * 3];
+                    positions[i * 3 + 1] += velocities[i * 3 + 1];
+                    positions[i * 3 + 2] += velocities[i * 3 + 2];
+                    
+                    // Dodaj odrobinę grawitacji dla realistycznego opadania
+                    velocities[i * 3 + 1] -= 0.01 * delta;
+                }
+            }
+            
+            // Zaktualizuj geometrię
+            exhaustParticlesSystem.geometry.attributes.position.needsUpdate = true;
+        }
+
+        // Zaktualizowana pętla animacji dla chmur i cząsteczek
         function animate() {
             requestAnimationFrame(animate);
 
             if (!scene || !camera || !renderer || !car) { 
                 return;
             }
+
+            // Aktualizacja frustum
+            cameraMatrix.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse);
+            frustum.setFromProjectionMatrix(cameraMatrix);
 
             if (isGameStarted && !isGameOver && isInitialized) {
                 const delta = clock.getDelta();
@@ -564,63 +782,42 @@
                 const moveAmount = gameSpeed * difficultyModifier;
                 currentSpeed = Math.floor(300 * gameSpeed);
 
-                // Przemieszczanie przeszkód
-                for (let i = obstacles.length - 1; i >= 0; i--) {
-                    if (obstacles[i] && obstacles[i].mesh) {
-                        obstacles[i].mesh.position.z -= moveAmount * 100 * delta;
-                        if (obstacles[i].mesh.position.z < -50) {
-                            scene.remove(obstacles[i].mesh);
-                            obstacles.splice(i, 1);
-                            score += 10;
-                        }
-                    } else {
-                         console.warn('Próba dostępu do nieprawidłowej przeszkody, indeks:', i);
-                         obstacles.splice(i, 1); 
-                    }
-                }
-
-                // Przemieszczanie drzew
-                for (let i = 0; i < trees.length; i++) {
-                    if (trees[i] && trees[i].position) {
-                         trees[i].position.z -= moveAmount * 100 * delta;
-                         if (trees[i].position.z < -50) {
-                             trees[i].position.z += 2000;
-                         }
-                    } else {
-                         console.warn('Próba dostępu do nieprawidłowego drzewa, indeks:', i);
-                    }
-                }
-
-                // Przesuwanie i usuwanie chmur (ruch w osi Z)
-                const cloudEffectiveParallax = 0.1; 
-                if (clouds && clouds.length > 0) { 
-                    for (let i = clouds.length - 1; i >= 0; i--) {
-                        const cloud = clouds[i]; // Teraz to jest THREE.Group
-                        if (!cloud || !cloud.position) {
-                             console.warn('Próba dostępu do nieistniejącej chmury lub jej pozycji, indeks:', i);
-                             clouds.splice(i, 1); 
-                             continue; 
-                        }
-
-                        cloud.position.z -= gameSpeed * difficultyModifier * 100 * delta * cloudEffectiveParallax;
+                // Aktualizacja pozycji instancji drzew
+                treeInstances.forEach(instance => {
+                    const matrix = new THREE.Matrix4();
+                    for (let i = 0; i < instance.count; i++) {
+                        instance.getMatrixAt(i, matrix);
+                        const position = new THREE.Vector3();
+                        position.setFromMatrixPosition(matrix);
+                        position.z -= moveAmount * 100 * delta;
                         
-                        if (i === 0) {
-                             // Nadal logujemy pozycję Z grupy chmur
-                             console.log('Pozycja Z chmury[0]:', cloud.position.z.toFixed(2));
+                        if (position.z < -50) {
+                            position.z += 2000;
                         }
+                        
+                        matrix.setPosition(position);
+                        instance.setMatrixAt(i, matrix);
+                    }
+                    instance.instanceMatrix.needsUpdate = true;
+                });
 
-                        if (cloud.position.z < camera.position.z - 50) {
-                            console.log('Usuwanie chmury (za kamerą) w pozycji:', cloud.position.z.toFixed(2));
-                            // Usuwamy całą grupę chmur
-                            scene.remove(cloud);
-                            clouds.splice(i, 1);
-                        }
+                // Aktualizacja pozycji chmur - wolniejszy ruch dla efektu paralaksy
+                const cloudSpeed = moveAmount * 20 * delta;
+                for (let i = 0; i < cloudInstancesList.length; i++) {
+                    const cloud = cloudInstancesList[i];
+                    cloud.position.z -= cloudSpeed;
+                    
+                    // Jeśli chmura wyjdzie poza widok, przenosimy ją na początek
+                    if (cloud.position.z < -100) {
+                        cloud.position.z = 600;
+                        cloud.position.x = (Math.random() - 0.5) * 300;
+                        cloud.position.y = 100 + Math.random() * 50;
                     }
                 }
 
-                // Generowanie nowych chmur
+                // Generowanie nowych chmur - z małym prawdopodobieństwem
                 timeSinceLastCloud += delta;
-                if (timeSinceLastCloud > cloudSpawnInterval) {
+                if (timeSinceLastCloud > cloudSpawnInterval && Math.random() < 0.1) {
                     spawnNewCloud();
                     timeSinceLastCloud = 0;
                 }
@@ -632,12 +829,30 @@
                     timeSinceLastObstacle = 0;
                 }
 
+                // Przemieszczanie przeszkód
+                for (let i = obstacles.length - 1; i >= 0; i--) {
+                    if (obstacles[i] && obstacles[i].mesh) {
+                        obstacles[i].mesh.position.z -= moveAmount * 100 * delta;
+                        if (obstacles[i].mesh.position.z < -50) {
+                            scene.remove(obstacles[i].mesh);
+                            obstacles.splice(i, 1);
+                            score += 10;
+                        }
+                    } else {
+                        console.warn('Próba dostępu do nieprawidłowej przeszkody, indeks:', i);
+                        obstacles.splice(i, 1);
+                    }
+                }
+
                 distance += moveAmount * delta * 10;
                 document.getElementById('distance').textContent = Math.floor(distance);
                 document.getElementById('speed').textContent = currentSpeed;
                 document.getElementById('score').textContent = score;
 
                 checkCollisions();
+
+                // Aktualizacja tylko systemu cząsteczek spalin
+                updateExhaustParticles(delta);
             }
 
             renderer.render(scene, camera);
@@ -647,7 +862,6 @@
         function gameOver() {
             isGameOver = true;
 
-            // Zatrzymanie dźwięku silnika
             if (engineSound) {
                 try {
                     engineSound.pause();
@@ -657,7 +871,6 @@
                 }
             }
 
-            // Odtworzenie dźwięku kolizji
             if (crashSound) {
                 try {
                     crashSound.currentTime = 0;
@@ -667,7 +880,12 @@
                 }
             }
 
-            document.getElementById('finalScore').textContent = score;
+            // Ustawienie komunikatu z imieniem i wynikiem
+            const gameOverMessageElement = document.getElementById('gameOverMessage');
+            if (gameOverMessageElement) {
+                gameOverMessageElement.textContent = `Brawo ${playerName}, zdobyłeś ${score} punktów!`;
+            }
+
             document.getElementById('finalDistance').textContent = Math.floor(distance);
             document.getElementById('gameOver').style.display = 'block';
         }
@@ -725,6 +943,12 @@
         
         // Start gry
         function startGame() {
+            // Pytanie o imię gracza
+            playerName = prompt("Podaj swoje imię:", "Gracz");
+            if (!playerName) { // Jeśli gracz kliknie Anuluj lub zostawi puste
+                playerName = "Gracz";
+            }
+
             isGameStarted = true;
             document.getElementById('startScreen').style.display = 'none';
             
@@ -794,8 +1018,8 @@
             scene = new THREE.Scene();
             scene.background = new THREE.Color(0x87CEEB);
             
-            // Inicjalizacja kamery - powrót do poprzednich ustawień
-            camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 5000);
+            // Inicjalizacja kamery - zmieniam wartość far, aby widzieć odległe chmury
+            camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 10000);
             camera.position.set(0, 10, -15);
             camera.lookAt(0, 0, 30);
             
@@ -826,6 +1050,9 @@
             createRoad();
             createCar();
             createClouds();
+            
+            // Dodajemy tylko system cząsteczek spalin
+            createExhaustParticles();
             
             // Rozpoczęcie animacji
             animate();
