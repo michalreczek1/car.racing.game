@@ -1207,6 +1207,16 @@
                 playerName = "Gracz"; // Ustawienie domyślne, jeśli anulowano lub wpisano pusty
             }
 
+            // Spersonalizowane powitanie dla wybranych imion
+            const specialNames = ["łucja", "igi", "franek"];
+            const lowerCasePlayerName = playerName.toLowerCase().trim();
+
+            if (lowerCasePlayerName === "łucja") {
+                alert(`Witaj kochana ${playerName}!`);
+            } else if (lowerCasePlayerName === "igi" || lowerCasePlayerName === "franek") {
+                alert(`Witaj kochany ${playerName}!`);
+            }
+
              // Tworzymy samochód z aktualnie wybranym kolorem
             createCar(selectedCar);
 
