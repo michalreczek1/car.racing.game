@@ -1,0 +1,825 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Wyścig 3D - Omijanie przeszkód</title>
+    <style>
+        body {
+            margin: 0;
+            overflow: hidden;
+            font-family: Arial, sans-serif;
+        }
+        #info {
+            position: absolute;
+            top: 10px;
+            left: 10px;
+            color: white;
+            background-color: rgba(0, 0, 0, 0.5);
+            padding: 10px;
+            border-radius: 5px;
+            z-index: 100;
+        }
+        #gameOver {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            color: white;
+            background-color: rgba(0, 0, 0, 0.7);
+            padding: 20px;
+            border-radius: 10px;
+            text-align: center;
+            display: none;
+            z-index: 100;
+        }
+        button {
+            padding: 10px 20px;
+            font-size: 16px;
+            margin-top: 15px;
+            cursor: pointer;
+            background-color: #4CAF50;
+            color: white;
+            border: none;
+            border-radius: 5px;
+        }
+        button:hover {
+            background-color: #45a049;
+        }
+        #instructions {
+            position: absolute;
+            bottom: 10px;
+            left: 10px;
+            color: white;
+            background-color: rgba(0, 0, 0, 0.5);
+            padding: 10px;
+            border-radius: 5px;
+            z-index: 100;
+        }
+    </style>
+</head>
+<body>
+    <div id="info">
+        <div>Dystans: <span id="distance">0</span> m</div>
+        <div>Prędkość: <span id="speed">0</span> km/h</div>
+        <div>Punkty: <span id="score">0</span></div>
+    </div>
+    <div id="gameOver">
+        <h2>Koniec gry!</h2>
+        <div>Twój wynik: <span id="finalScore">0</span></div>
+        <div>Przebyty dystans: <span id="finalDistance">0</span> m</div>
+        <button id="restartButton">Zagraj ponownie</button>
+    </div>
+    <div id="instructions">
+        Sterowanie: Strzałki lewo/prawo do zmiany pasa
+    </div>
+    <div id="startScreen" style="position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); text-align: center; color: white; background-color: rgba(0, 0, 0, 0.7); padding: 20px; border-radius: 10px;">
+        <h2>Wyścig 3D</h2>
+        <p>Kliknij przycisk poniżej, aby rozpocząć grę</p>
+        <button id="startButton">Rozpocznij grę</button>
+    </div>
+    
+    <!-- Importowanie Three.js i wymaganych modułów -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/GLTFLoader.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/DRACOLoader.js"></script>
+    <script>
+        // Zmienne globalne
+        let scene, camera, renderer;
+        let car, road;
+        let obstacles = [];
+        let trees = [];
+        let clouds = []; // Tablica do przechowywania chmur
+        let carPosition = 0;
+        let moveSpeed = 0.15;
+        let gameSpeed = 0.2;
+        let currentSpeed = 60;
+        let distance = 0;
+        let score = 0;
+        let isGameOver = false;
+        let roadWidth = 15;
+        let laneWidth = roadWidth / 3;
+        let carWidth = 2;
+        let carHeight = 1.5;
+        let carLength = 4;
+        let clock = new THREE.Clock();
+        let elapsedTime = 0;
+        let obstacleSpawnTime = 1.5;
+        let timeSinceLastObstacle = 0;
+        let difficultyModifier = 1;
+        let isInitialized = false;
+        let isGameStarted = false;
+        let engineSound, crashSound;
+
+        // Parametry chmur
+        let cloudParallaxFactor = 0.01; 
+        let cloudSpawnInterval = 10; 
+        let timeSinceLastCloud = 0;
+
+        // Inicjalizacja dźwięków
+        function initSounds() {
+            try {
+                engineSound = new Audio();
+                crashSound = new Audio();
+
+                engineSound.src = 'engine.mp3';
+                crashSound.src = 'crash.mp3';
+
+                engineSound.loop = true;
+                engineSound.volume = 0.5;
+                crashSound.volume = 0.7;
+
+                // Próba załadowania dźwięków
+                engineSound.load();
+                crashSound.load();
+
+                console.log('Dźwięki zainicjalizowane');
+            } catch (error) {
+                console.error('Błąd podczas inicjalizacji dźwięków:', error);
+            }
+        }
+
+        // Funkcja tworząca pojedynczą chmurę (PRZYWRÓCONY KSZTAŁT)
+        function createSingleCloud(x, y, z, scale) {
+            const cloudGroup = new THREE.Group();
+            const cloudMaterial = new THREE.MeshBasicMaterial({ 
+                color: 0xffffff, 
+                transparent: true, 
+                opacity: 0.6, // Większa przezroczystość
+                side: THREE.DoubleSide // Na wszelki wypadek
+            }); 
+            const sphereGeometry = new THREE.SphereGeometry(5, 16, 8); // Mniej segmentów dla wydajności
+            
+            const sphereCount = 15 + Math.floor(Math.random() * 10); // 15-24 sfery
+            for (let i = 0; i < sphereCount; i++) {
+                const sphere = new THREE.Mesh(sphereGeometry, cloudMaterial);
+                
+                // Rozmieszczenie sfer w obrębie chmury
+                const offsetX = (Math.random() - 0.5) * 15 * scale;
+                const offsetY = (Math.random() - 0.5) * 5 * scale;
+                const offsetZ = (Math.random() - 0.5) * 10 * scale;
+                sphere.position.set(offsetX, offsetY, offsetZ);
+                
+                // Różne rozmiary sfer
+                const sphereScale = 0.3 + Math.random() * 0.7;
+                sphere.scale.set(sphereScale, sphereScale, sphereScale);
+                
+                cloudGroup.add(sphere);
+            }
+            
+            cloudGroup.position.set(x, y, z);
+            // Nie skalujemy już całej grupy, tylko poszczególne sfery i ich rozmieszczenie
+            // cloudGroup.scale.set(scale, scale, scale);
+            
+            clouds.push(cloudGroup); // Dodajemy grupę do tablicy
+            return cloudGroup;
+        }
+
+        // Dodanie chmur (PRZYBLIŻONE POZYCJE POCZĄTKOWE)
+        function createClouds() {
+            console.log('Tworzenie chmur (sfery, bliżej)...');
+            
+            clouds = []; 
+
+            const initialCloudPositions = [
+                // Zbliżamy zakres Z, np. 200-400
+                { x: -50, y: 30, z: 200, scale: 1.0 }, 
+                { x: 50, y: 35, z: 250, scale: 1.2 },
+                { x: -70, y: 40, z: 300, scale: 1.1 }, 
+                { x: 70, y: 32, z: 350, scale: 1.3 }, 
+                { x: -40, y: 38, z: 400, scale: 1.0 },
+            ];
+            
+            initialCloudPositions.forEach(pos => {
+                const initialCloud = createSingleCloud(pos.x, pos.y, pos.z, pos.scale);
+                scene.add(initialCloud);
+            });
+            console.log('Początkowe chmury zostały utworzone');
+        }
+
+        // Tworzenie nowej chmury (PRZYBLIŻONE POZYCJE POCZĄTKOWE)
+        function spawnNewCloud() {
+            if (!scene) {
+                console.error('Scena nie jest jeszcze zainicjalizowana');
+                return;
+            }
+            const x = (Math.random() - 0.5) * 250; 
+            const y = 30 + Math.random() * 20; // Nieco wyżej
+            // Zbliżamy zakres Z, np. 400-600
+            const z = 400 + Math.random() * 200; 
+            const scale = 1.0 + Math.random() * 0.5; // Skala wpływa teraz na rozmiar i rozłożenie sfer
+
+            console.log('Tworzenie nowej chmury na:', x, y, z);
+            const newCloud = createSingleCloud(x, y, z, scale);
+            scene.add(newCloud);
+        }
+        
+        // Tworzenie drogi
+        function createRoad() {
+            const roadGeometry = new THREE.PlaneGeometry(roadWidth, 2000);
+            const roadMaterial = new THREE.MeshStandardMaterial({ color: 0x333333 });
+            
+            road = new THREE.Mesh(roadGeometry, roadMaterial);
+            road.rotation.x = -Math.PI / 2;
+            road.position.y = -0.1;
+            road.receiveShadow = true;
+            scene.add(road);
+            
+            // Oznaczenia pasów
+            for (let i = -1; i <= 1; i += 2) {
+                const laneMarkerGeometry = new THREE.PlaneGeometry(0.3, 2000);
+                const laneMarkerMaterial = new THREE.MeshStandardMaterial({ 
+                    color: 0xFFFFFF,
+                    side: THREE.DoubleSide
+                });
+                
+                const laneMarker = new THREE.Mesh(laneMarkerGeometry, laneMarkerMaterial);
+                laneMarker.rotation.x = -Math.PI / 2;
+                laneMarker.position.set(i * laneWidth, -0.05, 0);
+                scene.add(laneMarker);
+            }
+            
+            // Środkowa linia przerywana
+            for (let z = -1000; z < 1000; z += 10) {
+                const centerMarkerGeometry = new THREE.PlaneGeometry(0.3, 5);
+                const centerMarkerMaterial = new THREE.MeshStandardMaterial({ 
+                    color: 0xFFFFFF,
+                    side: THREE.DoubleSide
+                });
+                
+                const centerMarker = new THREE.Mesh(centerMarkerGeometry, centerMarkerMaterial);
+                centerMarker.rotation.x = -Math.PI / 2;
+                centerMarker.position.set(0, -0.05, z);
+                scene.add(centerMarker);
+            }
+            
+            // Pobocze (pas zieleni)
+            const leftSideGeometry = new THREE.PlaneGeometry(20, 2000);
+            const rightSideGeometry = new THREE.PlaneGeometry(20, 2000);
+            const grassMaterial = new THREE.MeshStandardMaterial({ 
+                color: 0x2E8B57,
+                side: THREE.DoubleSide
+            });
+            
+            const leftSide = new THREE.Mesh(leftSideGeometry, grassMaterial);
+            leftSide.rotation.x = -Math.PI / 2;
+            leftSide.position.set(-roadWidth/2 - 10, -0.15, 0);
+            scene.add(leftSide);
+            
+            const rightSide = new THREE.Mesh(rightSideGeometry, grassMaterial);
+            rightSide.rotation.x = -Math.PI / 2;
+            rightSide.position.set(roadWidth/2 + 10, -0.15, 0);
+            scene.add(rightSide);
+            
+            // Dodanie drzew na poboczu
+            addTrees();
+        }
+        
+        // Tworzenie samochodu
+        function createCar() {
+            // Tworzymy grupę dla samochodu
+            car = new THREE.Group();
+            
+            // Materiały
+            const bodyMaterial = new THREE.MeshStandardMaterial({ 
+                color: 0xff0000,
+                metalness: 0.8,
+                roughness: 0.2,
+                envMapIntensity: 1
+            });
+            
+            const windowMaterial = new THREE.MeshStandardMaterial({ 
+                color: 0x87CEEB,
+                metalness: 0.9,
+                roughness: 0.1,
+                transparent: true,
+                opacity: 0.7
+            });
+            
+            const wheelMaterial = new THREE.MeshStandardMaterial({ 
+                color: 0x222222,
+                metalness: 0.7,
+                roughness: 0.3
+            });
+            
+            const chromeMaterial = new THREE.MeshStandardMaterial({ 
+                color: 0xffffff,
+                metalness: 1.0,
+                roughness: 0.1
+            });
+            
+            const headlightMaterial = new THREE.MeshStandardMaterial({ 
+                color: 0xffffff,
+                emissive: 0xffffff,
+                emissiveIntensity: 1.0
+            });
+            
+            // Nadwozie główne
+            const bodyGeometry = new THREE.BoxGeometry(carWidth, carHeight * 0.5, carLength);
+            const body = new THREE.Mesh(bodyGeometry, bodyMaterial);
+            body.position.y = carHeight * 0.25;
+            body.castShadow = true;
+            car.add(body);
+            
+            // Przód samochodu
+            const frontGeometry = new THREE.BoxGeometry(carWidth, carHeight * 0.3, carLength * 0.2);
+            const front = new THREE.Mesh(frontGeometry, bodyMaterial);
+            front.position.y = carHeight * 0.15;
+            front.position.z = carLength * 0.4;
+            front.castShadow = true;
+            car.add(front);
+            
+            // Tyl samochodu
+            const rearGeometry = new THREE.BoxGeometry(carWidth, carHeight * 0.4, carLength * 0.3);
+            const rear = new THREE.Mesh(rearGeometry, bodyMaterial);
+            rear.position.y = carHeight * 0.2;
+            rear.position.z = -carLength * 0.35;
+            rear.castShadow = true;
+            car.add(rear);
+            
+            // Kabina
+            const cabinGeometry = new THREE.BoxGeometry(carWidth * 0.9, carHeight * 0.4, carLength * 0.5);
+            const cabin = new THREE.Mesh(cabinGeometry, windowMaterial);
+            cabin.position.y = carHeight * 0.6;
+            cabin.position.z = carLength * 0.05;
+            cabin.castShadow = true;
+            car.add(cabin);
+            
+            // Przednia szyba
+            const windshieldGeometry = new THREE.BoxGeometry(carWidth * 0.9, carHeight * 0.2, carLength * 0.1);
+            const windshield = new THREE.Mesh(windshieldGeometry, windowMaterial);
+            windshield.position.y = carHeight * 0.5;
+            windshield.position.z = carLength * 0.2;
+            windshield.rotation.x = -Math.PI / 6;
+            car.add(windshield);
+            
+            // Tylna szyba
+            const rearWindowGeometry = new THREE.BoxGeometry(carWidth * 0.9, carHeight * 0.2, carLength * 0.1);
+            const rearWindow = new THREE.Mesh(rearWindowGeometry, windowMaterial);
+            rearWindow.position.y = carHeight * 0.5;
+            rearWindow.position.z = -carLength * 0.2;
+            rearWindow.rotation.x = Math.PI / 6;
+            car.add(rearWindow);
+            
+            // Koła
+            const wheelGeometry = new THREE.CylinderGeometry(0.3, 0.3, 0.2, 32);
+            wheelGeometry.rotateX(Math.PI / 2);
+            
+            // Felgi
+            const rimGeometry = new THREE.CylinderGeometry(0.2, 0.2, 0.21, 32);
+            rimGeometry.rotateX(Math.PI / 2);
+            
+            // Przednie koła
+            const frontLeftWheel = new THREE.Group();
+            const frontLeftTire = new THREE.Mesh(wheelGeometry, wheelMaterial);
+            const frontLeftRim = new THREE.Mesh(rimGeometry, chromeMaterial);
+            frontLeftWheel.add(frontLeftTire);
+            frontLeftWheel.add(frontLeftRim);
+            frontLeftWheel.position.set(-carWidth/2, 0.3, carLength/3);
+            frontLeftWheel.castShadow = true;
+            car.add(frontLeftWheel);
+            
+            const frontRightWheel = new THREE.Group();
+            const frontRightTire = new THREE.Mesh(wheelGeometry, wheelMaterial);
+            const frontRightRim = new THREE.Mesh(rimGeometry, chromeMaterial);
+            frontRightWheel.add(frontRightTire);
+            frontRightWheel.add(frontRightRim);
+            frontRightWheel.position.set(carWidth/2, 0.3, carLength/3);
+            frontRightWheel.castShadow = true;
+            car.add(frontRightWheel);
+            
+            // Tylne koła
+            const rearLeftWheel = new THREE.Group();
+            const rearLeftTire = new THREE.Mesh(wheelGeometry, wheelMaterial);
+            const rearLeftRim = new THREE.Mesh(rimGeometry, chromeMaterial);
+            rearLeftWheel.add(rearLeftTire);
+            rearLeftWheel.add(rearLeftRim);
+            rearLeftWheel.position.set(-carWidth/2, 0.3, -carLength/3);
+            rearLeftWheel.castShadow = true;
+            car.add(rearLeftWheel);
+            
+            const rearRightWheel = new THREE.Group();
+            const rearRightTire = new THREE.Mesh(wheelGeometry, wheelMaterial);
+            const rearRightRim = new THREE.Mesh(rimGeometry, chromeMaterial);
+            rearRightWheel.add(rearRightTire);
+            rearRightWheel.add(rearRightRim);
+            rearRightWheel.position.set(carWidth/2, 0.3, -carLength/3);
+            rearRightWheel.castShadow = true;
+            car.add(rearRightWheel);
+            
+            // Reflektory
+            const headlightGeometry = new THREE.SphereGeometry(0.2, 32, 32);
+            
+            const leftHeadlight = new THREE.Mesh(headlightGeometry, headlightMaterial);
+            leftHeadlight.position.set(-carWidth/2, 0.3, carLength/2);
+            car.add(leftHeadlight);
+            
+            const rightHeadlight = new THREE.Mesh(headlightGeometry, headlightMaterial);
+            rightHeadlight.position.set(carWidth/2, 0.3, carLength/2);
+            car.add(rightHeadlight);
+            
+            // Światła tylne
+            const taillightGeometry = new THREE.SphereGeometry(0.15, 32, 32);
+            const taillightMaterial = new THREE.MeshStandardMaterial({ 
+                color: 0xff0000,
+                emissive: 0xff0000,
+                emissiveIntensity: 0.5
+            });
+            
+            const leftTaillight = new THREE.Mesh(taillightGeometry, taillightMaterial);
+            leftTaillight.position.set(-carWidth/2, 0.3, -carLength/2);
+            car.add(leftTaillight);
+            
+            const rightTaillight = new THREE.Mesh(taillightGeometry, taillightMaterial);
+            rightTaillight.position.set(carWidth/2, 0.3, -carLength/2);
+            car.add(rightTaillight);
+            
+            // Lusterka
+            const mirrorGeometry = new THREE.BoxGeometry(0.1, 0.1, 0.2);
+            
+            const leftMirror = new THREE.Mesh(mirrorGeometry, chromeMaterial);
+            leftMirror.position.set(-carWidth/2 - 0.1, carHeight * 0.5, carLength/3);
+            car.add(leftMirror);
+            
+            const rightMirror = new THREE.Mesh(mirrorGeometry, chromeMaterial);
+            rightMirror.position.set(carWidth/2 + 0.1, carHeight * 0.5, carLength/3);
+            car.add(rightMirror);
+            
+            // Pozycja samochodu
+            car.position.set(0, 0.75, 0);
+            scene.add(car);
+            isInitialized = true;
+        }
+        
+        // Dodawanie drzew na poboczu
+        function addTrees() {
+            for (let z = -1000; z < 1000; z += 40) {
+                createTree(-roadWidth - 5 - Math.random() * 10, 0, z + Math.random() * 20);
+                createTree(roadWidth + 5 + Math.random() * 10, 0, z + Math.random() * 20);
+            }
+        }
+        
+        // Tworzenie pojedynczego drzewa
+        function createTree(x, y, z) {
+            const treeGroup = new THREE.Group();
+            
+            const trunkGeometry = new THREE.CylinderGeometry(0.5, 0.7, 3, 8);
+            const trunkMaterial = new THREE.MeshStandardMaterial({ color: 0x8B4513 });
+            const trunk = new THREE.Mesh(trunkGeometry, trunkMaterial);
+            trunk.position.y = 1.5;
+            trunk.castShadow = true;
+            treeGroup.add(trunk);
+            
+            const leafGeometry = new THREE.ConeGeometry(2.5, 5, 8);
+            const leafMaterial = new THREE.MeshStandardMaterial({ color: 0x228B22 });
+            const leaves = new THREE.Mesh(leafGeometry, leafMaterial);
+            leaves.position.y = 5;
+            leaves.castShadow = true;
+            treeGroup.add(leaves);
+            
+            treeGroup.position.set(x, y, z);
+            scene.add(treeGroup);
+            trees.push(treeGroup);
+        }
+        
+        // Tworzenie przeszkody
+        function createObstacle() {
+            const lanes = [-1, 0, 1];
+            const lane = lanes[Math.floor(Math.random() * lanes.length)];
+            const obstacleType = Math.floor(Math.random() * 3);
+            let obstacleGeometry, obstacleMaterial;
+
+            if (obstacleType === 0) {
+                obstacleGeometry = new THREE.BoxGeometry(
+                    2 + Math.random() * 2,
+                    1 + Math.random() * 2,
+                    2 + Math.random() * 2
+                );
+                obstacleMaterial = new THREE.MeshStandardMaterial({ color: 0x808080 });
+            } else if (obstacleType === 1) {
+                obstacleGeometry = new THREE.CylinderGeometry(0.5, 0.5, 2, 8);
+                obstacleMaterial = new THREE.MeshStandardMaterial({ color: 0xFFD700 });
+            } else {
+                obstacleGeometry = new THREE.BoxGeometry(1.5, 1, 2);
+                obstacleMaterial = new THREE.MeshStandardMaterial({ color: 0x8B4513 });
+            }
+
+            const obstacle = new THREE.Mesh(obstacleGeometry, obstacleMaterial);
+            obstacle.position.set(
+                lane * laneWidth,
+                obstacleGeometry.parameters.height / 2,
+                1000
+            );
+
+            obstacle.castShadow = true;
+            obstacle.receiveShadow = true;
+
+            scene.add(obstacle);
+            obstacles.push({
+                mesh: obstacle,
+                width: obstacleGeometry.parameters.width,
+                height: obstacleGeometry.parameters.height,
+                depth: obstacleGeometry.parameters.depth
+            });
+        }
+        
+        // Sprawdzanie kolizji
+        function checkCollisions() {
+            if (!car) return false;
+            
+            const carBoundingBox = new THREE.Box3().setFromObject(car);
+            
+            for (let i = 0; i < obstacles.length; i++) {
+                const obstacleBoundingBox = new THREE.Box3().setFromObject(obstacles[i].mesh);
+                
+                if (carBoundingBox.intersectsBox(obstacleBoundingBox)) {
+                    gameOver();
+                    return true;
+                }
+            }
+            
+            return false;
+        }
+        
+        // Główna pętla animacji (BEZ ZMIAN W RUCHU - tylko materiał chmur się zmienił)
+        function animate() {
+            requestAnimationFrame(animate);
+
+            if (!scene || !camera || !renderer || !car) { 
+                return;
+            }
+
+            if (isGameStarted && !isGameOver && isInitialized) {
+                const delta = clock.getDelta();
+                elapsedTime += delta;
+
+                gameSpeed = Math.min(gameSpeed + delta * 0.01, 1);
+                if (distance > 0 && distance % 500 < 5) {
+                    difficultyModifier += 0.05;
+                }
+
+                const targetX = carPosition * laneWidth;
+                car.position.x += (targetX - car.position.x) * moveSpeed;
+
+                const moveAmount = gameSpeed * difficultyModifier;
+                currentSpeed = Math.floor(300 * gameSpeed);
+
+                // Przemieszczanie przeszkód
+                for (let i = obstacles.length - 1; i >= 0; i--) {
+                    if (obstacles[i] && obstacles[i].mesh) {
+                        obstacles[i].mesh.position.z -= moveAmount * 100 * delta;
+                        if (obstacles[i].mesh.position.z < -50) {
+                            scene.remove(obstacles[i].mesh);
+                            obstacles.splice(i, 1);
+                            score += 10;
+                        }
+                    } else {
+                         console.warn('Próba dostępu do nieprawidłowej przeszkody, indeks:', i);
+                         obstacles.splice(i, 1); 
+                    }
+                }
+
+                // Przemieszczanie drzew
+                for (let i = 0; i < trees.length; i++) {
+                    if (trees[i] && trees[i].position) {
+                         trees[i].position.z -= moveAmount * 100 * delta;
+                         if (trees[i].position.z < -50) {
+                             trees[i].position.z += 2000;
+                         }
+                    } else {
+                         console.warn('Próba dostępu do nieprawidłowego drzewa, indeks:', i);
+                    }
+                }
+
+                // Przesuwanie i usuwanie chmur (ruch w osi Z)
+                const cloudEffectiveParallax = 0.1; 
+                if (clouds && clouds.length > 0) { 
+                    for (let i = clouds.length - 1; i >= 0; i--) {
+                        const cloud = clouds[i]; // Teraz to jest THREE.Group
+                        if (!cloud || !cloud.position) {
+                             console.warn('Próba dostępu do nieistniejącej chmury lub jej pozycji, indeks:', i);
+                             clouds.splice(i, 1); 
+                             continue; 
+                        }
+
+                        cloud.position.z -= gameSpeed * difficultyModifier * 100 * delta * cloudEffectiveParallax;
+                        
+                        if (i === 0) {
+                             // Nadal logujemy pozycję Z grupy chmur
+                             console.log('Pozycja Z chmury[0]:', cloud.position.z.toFixed(2));
+                        }
+
+                        if (cloud.position.z < camera.position.z - 50) {
+                            console.log('Usuwanie chmury (za kamerą) w pozycji:', cloud.position.z.toFixed(2));
+                            // Usuwamy całą grupę chmur
+                            scene.remove(cloud);
+                            clouds.splice(i, 1);
+                        }
+                    }
+                }
+
+                // Generowanie nowych chmur
+                timeSinceLastCloud += delta;
+                if (timeSinceLastCloud > cloudSpawnInterval) {
+                    spawnNewCloud();
+                    timeSinceLastCloud = 0;
+                }
+
+                // Generowanie przeszkód
+                timeSinceLastObstacle += delta;
+                if (timeSinceLastObstacle > obstacleSpawnTime / difficultyModifier) {
+                    createObstacle();
+                    timeSinceLastObstacle = 0;
+                }
+
+                distance += moveAmount * delta * 10;
+                document.getElementById('distance').textContent = Math.floor(distance);
+                document.getElementById('speed').textContent = currentSpeed;
+                document.getElementById('score').textContent = score;
+
+                checkCollisions();
+            }
+
+            renderer.render(scene, camera);
+        }
+        
+        // Koniec gry
+        function gameOver() {
+            isGameOver = true;
+
+            // Zatrzymanie dźwięku silnika
+            if (engineSound) {
+                try {
+                    engineSound.pause();
+                    engineSound.currentTime = 0;
+                } catch (error) {
+                    console.error('Błąd podczas zatrzymywania dźwięku silnika:', error);
+                }
+            }
+
+            // Odtworzenie dźwięku kolizji
+            if (crashSound) {
+                try {
+                    crashSound.currentTime = 0;
+                    crashSound.play();
+                } catch (error) {
+                    console.error('Błąd podczas odtwarzania dźwięku kolizji:', error);
+                }
+            }
+
+            document.getElementById('finalScore').textContent = score;
+            document.getElementById('finalDistance').textContent = Math.floor(distance);
+            document.getElementById('gameOver').style.display = 'block';
+        }
+        
+        // Restart gry
+        function restartGame() {
+            // Usunięcie wszystkich przeszkód
+            for (let i = obstacles.length - 1; i >= 0; i--) {
+                scene.remove(obstacles[i].mesh);
+            }
+            obstacles = [];
+            
+            // Usunięcie wszystkich chmur
+            for (let i = clouds.length - 1; i >= 0; i--) {
+                scene.remove(clouds[i]);
+            }
+            clouds = [];
+
+            // Reset zmiennych
+            carPosition = 0;
+            gameSpeed = 0.2;
+            currentSpeed = 60;
+            distance = 0;
+            score = 0;
+            isGameOver = false;
+            difficultyModifier = 1;
+            
+            // Reset pozycji samochodu
+            car.position.x = 0;
+            car.position.z = 0;
+            
+            // Aktualizacja interfejsu
+            document.getElementById('distance').textContent = '0';
+            document.getElementById('speed').textContent = '0';
+            document.getElementById('score').textContent = '0';
+            document.getElementById('gameOver').style.display = 'none';
+            
+            // Reset zegara
+            clock = new THREE.Clock();
+            timeSinceLastCloud = 0; // Reset timera chmur
+            timeSinceLastObstacle = 0; // Reset timera przeszkód
+
+            // Utworzenie początkowych chmur
+            createClouds();
+
+            // Ponowne uruchomienie dźwięku silnika
+            if (engineSound) {
+                try {
+                    engineSound.play();
+                } catch (error) {
+                    console.error('Błąd podczas uruchamiania dźwięku silnika:', error);
+                }
+            }
+        }
+        
+        // Start gry
+        function startGame() {
+            isGameStarted = true;
+            document.getElementById('startScreen').style.display = 'none';
+            
+            // Uruchomienie dźwięku silnika
+            if (engineSound) {
+                try {
+                    engineSound.play();
+                } catch (error) {
+                    console.error('Błąd podczas uruchamiania dźwięku silnika:', error);
+                }
+            }
+        }
+        
+        // Obsługa klawiatury
+        function onKeyDown(event) {
+            if (isGameOver) return;
+
+            switch (event.key) {
+                case 'ArrowLeft':
+                    if (carPosition < 1) carPosition++;
+                    break;
+                case 'ArrowRight':
+                    if (carPosition > -1) carPosition--;
+                    break;
+                case 'ArrowUp':
+                    gameSpeed = Math.min(gameSpeed + 0.05, 1);
+                    break;
+                case 'ArrowDown':
+                    gameSpeed = Math.max(gameSpeed - 0.05, 0.1);
+                    break;
+            }
+        }
+        
+        // Dostosowanie do zmiany rozmiaru okna
+        function onWindowResize() {
+            const width = window.innerWidth;
+            const height = window.innerHeight;
+            
+            camera.aspect = width / height;
+            camera.updateProjectionMatrix();
+            
+            renderer.setSize(width, height);
+        }
+
+        // Inicjalizacja gry
+        function initGame() {
+            // Inicjalizacja sceny
+            scene = new THREE.Scene();
+            scene.background = new THREE.Color(0x87CEEB);
+            
+            // Inicjalizacja kamery - powrót do poprzednich ustawień
+            camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 5000);
+            camera.position.set(0, 10, -15);
+            camera.lookAt(0, 0, 30);
+            
+            // Inicjalizacja renderera
+            renderer = new THREE.WebGLRenderer({ antialias: true });
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            renderer.shadowMap.enabled = true;
+            document.body.appendChild(renderer.domElement);
+            
+            // Światło - powrót do poprzednich ustawień
+            const ambientLight = new THREE.AmbientLight(0xffffff, 0.6);
+            scene.add(ambientLight);
+            
+            const directionalLight = new THREE.DirectionalLight(0xffffff, 0.8);
+            directionalLight.position.set(100, 100, 50);
+            directionalLight.castShadow = true;
+            scene.add(directionalLight);
+
+            const spotLight = new THREE.SpotLight(0xffffff, 1);
+            spotLight.position.set(0, 5, -10);
+            spotLight.castShadow = true;
+            scene.add(spotLight);
+
+            // Inicjalizacja dźwięków
+            initSounds();
+            
+            // Tworzenie elementów gry
+            createRoad();
+            createCar();
+            createClouds();
+            
+            // Rozpoczęcie animacji
+            animate();
+        }
+
+        // Event listenery
+        window.addEventListener('resize', onWindowResize);
+        document.addEventListener('keydown', onKeyDown);
+        document.getElementById('restartButton').addEventListener('click', restartGame);
+        document.getElementById('startButton').addEventListener('click', startGame);
+
+        // Rozpoczęcie gry
+        initGame();
+    </script>
+</body>
+</html>
