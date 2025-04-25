@@ -56,26 +56,126 @@
             border-radius: 5px;
             z-index: 100;
         }
+        /* Dodane style dla ekranu startowego i wyboru samochodu */
+        #startScreen {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0, 0, 0, 0.8);
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            z-index: 100;
+            color: white; /* Dodajemy domyślny kolor tekstu */
+        }
+        #startScreen h1, #startScreen h2 { /* Styl dla nagłówków */
+            color: #ff6347; /* Pomarańczowy */
+            text-shadow: 2px 2px 4px #000;
+            margin-bottom: 20px;
+        }
+        #startScreen p { /* Styl dla paragrafów */
+             margin-bottom: 20px;
+        }
+        #carSelection {
+            margin-bottom: 30px;
+            text-align: center;
+        }
+        .carOptions {
+            display: flex;
+            justify-content: center;
+            gap: 15px; /* Odstęp między opcjami */
+            margin-top: 15px;
+        }
+        .carOption {
+            width: 60px; /* Zwiększamy rozmiar */
+            height: 40px; /* Prostokątny kształt */
+            border-radius: 5px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            border: 3px solid transparent;
+            display: flex; /* Aby wyśrodkować tekst pod spodem */
+            flex-direction: column;
+            align-items: center;
+            padding: 5px;
+        }
+        .carOption .colorBox { /* Div reprezentujący kolor */
+             width: 100%;
+             height: 100%;
+             border-radius: 3px;
+             margin-bottom: 5px; /* Odstęp od tekstu */
+        }
+        .carOption span { /* Tekst pod kolorem */
+             font-size: 0.9em;
+        }
+        .carOption.selected {
+            border-color: white; /* Biała ramka dla zaznaczonego */
+            transform: scale(1.1); /* Lekkie powiększenie */
+            box-shadow: 0 0 10px white; /* Biały cień */
+        }
+        .carOption[data-car="red"] .colorBox { background-color: #ff3333; }
+        .carOption[data-car="blue"] .colorBox { background-color: #3366ff; }
+        .carOption[data-car="green"] .colorBox { background-color: #33cc33; }
+        .carOption[data-car="yellow"] .colorBox { background-color: #ffcc00; }
+
+        #startButton { /* Styl przycisku Start */
+            padding: 15px 40px;
+            font-size: 1.5em;
+            background-color: #ff6347; /* Pomarańczowy */
+            color: white;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+        #startButton:hover {
+            background-color: #ff4500; /* Ciemniejszy pomarańczowy */
+            transform: scale(1.05);
+        }
     </style>
 </head>
 <body>
-    <div id="info">
+    <div id="info" style="display: none;"> <!-- Ukrywamy UI gry na początku -->
         <div>Dystans: <span id="distance">0</span> m</div>
         <div>Prędkość: <span id="speed">0</span> km/h</div>
         <div>Punkty: <span id="score">0</span></div>
     </div>
-    <div id="gameOver">
+    <div id="gameOver" style="display: none;"> <!-- Ekran końca gry też ukryty -->
         <h2>Koniec gry!</h2>
         <p id="gameOverMessage"></p>
         <div>Przebyty dystans: <span id="finalDistance">0</span> m</div>
         <button id="restartButton">Zagraj ponownie</button>
     </div>
-    <div id="instructions">
+    <div id="instructions" style="display: none;"> <!-- Instrukcje też ukryte -->
         Sterowanie: Strzałki lewo/prawo do zmiany pasa
     </div>
-    <div id="startScreen" style="position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); text-align: center; color: white; background-color: rgba(0, 0, 0, 0.7); padding: 20px; border-radius: 10px;">
-        <h2>Wyścig 3D</h2>
-        <p>Kliknij przycisk poniżej, aby rozpocząć grę</p>
+    <!-- Zaktualizowany Ekran Startowy -->
+    <div id="startScreen">
+        <h1>Wyścig 3D</h1>
+        <div id="carSelection">
+            <h2>Wybierz kolor samochodu:</h2>
+            <div class="carOptions">
+                <!-- Opcje wyboru samochodu -->
+                <div class="carOption selected" data-car="red">
+                     <div class="colorBox"></div>
+                     <span>Czerwony</span>
+                </div>
+                <div class="carOption" data-car="blue">
+                     <div class="colorBox"></div>
+                     <span>Niebieski</span>
+                </div>
+                <div class="carOption" data-car="green">
+                     <div class="colorBox"></div>
+                     <span>Zielony</span>
+                </div>
+                <div class="carOption" data-car="yellow">
+                     <div class="colorBox"></div>
+                     <span>Żółty</span>
+                </div>
+            </div>
+        </div>
         <button id="startButton">Rozpocznij grę</button>
     </div>
     
@@ -119,11 +219,18 @@
         let cloudGeometry, cloudMaterial; // Geometria i materiał dla chmur
         // Systemy cząsteczek
         let exhaustParticlesSystem;
+        let selectedCar = 'red'; // Dodajemy zmienną do przechowywania wybranego koloru, domyślnie czerwony
 
         // Parametry chmur
         let cloudParallaxFactor = 0.01; 
         let cloudSpawnInterval = 7.5;
         let timeSinceLastCloud = 0;
+
+        // Zmienne pogodowe
+        let currentWeather = 'clear'; // Możliwe stany: 'clear', 'rain', 'snow'
+        let rainParticlesSystem;
+        let snowParticlesSystem;
+        const particleCount = 5000; // Liczba cząsteczek dla deszczu/śniegu
 
         // Inicjalizacja dźwięków
         function initSounds() {
@@ -169,32 +276,52 @@
 
         // Dodawanie drzew na poboczu z użyciem instanced geometry
         function addTrees() {
+            // Usuwamy poprzednie instancje drzew, jeśli istnieją
+            treeInstances.forEach(instanceGroup => {
+                instanceGroup.forEach(instanceMesh => {
+                    if (instanceMesh && scene) {
+                         scene.remove(instanceMesh);
+                    }
+                });
+            });
+            treeInstances = []; // Resetujemy tablicę
+
             // Tworzymy instancje drzewa
             const treeInstance = createTreeInstance();
             treeGeometry = treeInstance.trunkGeometry;
             treeMaterial = treeInstance.trunkMaterial;
+            const leavesGeometry = treeInstance.leavesGeometry;
+            const leavesMaterial = treeInstance.leavesMaterial;
             
-            // Tworzymy instancje dla pni i koron
-            const trunkInstances = new THREE.InstancedMesh(treeGeometry, treeMaterial, 100);
-            const leavesInstances = new THREE.InstancedMesh(treeInstance.leavesGeometry, treeInstance.leavesMaterial, 100);
+            // Tworzymy instancje dla pni i koron (zwiększona liczba dla gęstości)
+            const numTrees = 200; // Zwiększona liczba drzew
+            const trunkInstances = new THREE.InstancedMesh(treeGeometry, treeMaterial, numTrees);
+            const leavesInstances = new THREE.InstancedMesh(leavesGeometry, leavesMaterial, numTrees);
             
             const matrix = new THREE.Matrix4();
             let instanceCount = 0;
+            const roadHalfWidth = roadWidth / 2; // Obliczamy połowę szerokości drogi
             
-            for (let z = -1000; z < 1000; z += 40) {
-                // Lewa strona
-                matrix.setPosition(-roadWidth - 5 - Math.random() * 10, 0, z + Math.random() * 20);
-                trunkInstances.setMatrixAt(instanceCount, matrix);
-                matrix.setPosition(-roadWidth - 5 - Math.random() * 10, 5, z + Math.random() * 20);
-                leavesInstances.setMatrixAt(instanceCount, matrix);
-                
-                // Prawa strona
-                matrix.setPosition(roadWidth + 5 + Math.random() * 10, 0, z + Math.random() * 20);
-                trunkInstances.setMatrixAt(instanceCount + 1, matrix);
-                matrix.setPosition(roadWidth + 5 + Math.random() * 10, 5, z + Math.random() * 20);
-                leavesInstances.setMatrixAt(instanceCount + 1, matrix);
-                
-                instanceCount += 2;
+            // Rozmieszczamy drzewa gęściej
+            for (let i = 0; i < numTrees / 2; i++) { // Dzielimy na pół, bo dodajemy po dwa na iterację
+                 const zPos = (Math.random() - 0.5) * 2000; // Rozmieszczenie na całej długości drogi
+                 const randomOffset = 5 + Math.random() * 15; // Losowy odstęp od krawędzi drogi (5 do 20)
+                 
+                 // Lewa strona - używamy roadHalfWidth
+                 let xPosLeft = -roadHalfWidth - randomOffset;
+                 matrix.setPosition(xPosLeft, 1.5, zPos); // Pozycja pnia (Y=1.5, bo cylinder ma wysokość 3)
+                 trunkInstances.setMatrixAt(instanceCount, matrix);
+                 matrix.setPosition(xPosLeft, 4, zPos); // Pozycja korony (Y=1.5 + 2.5 = 4)
+                 leavesInstances.setMatrixAt(instanceCount, matrix);
+                 instanceCount++;
+                 
+                 // Prawa strona - używamy roadHalfWidth
+                 let xPosRight = roadHalfWidth + randomOffset;
+                 matrix.setPosition(xPosRight, 1.5, zPos);
+                 trunkInstances.setMatrixAt(instanceCount, matrix);
+                 matrix.setPosition(xPosRight, 4, zPos);
+                 leavesInstances.setMatrixAt(instanceCount, matrix);
+                 instanceCount++;
             }
             
             trunkInstances.count = instanceCount;
@@ -202,7 +329,9 @@
             
             scene.add(trunkInstances);
             scene.add(leavesInstances);
-            treeInstances.push(trunkInstances, leavesInstances);
+            // Przechowujemy referencje do instancji, aby móc je usunąć
+            treeInstances.push([trunkInstances, leavesInstances]);
+            console.log("Dodano drzewa na poboczach.");
         }
 
         // Tworzenie instancji chmury - naturalny kształt
@@ -375,48 +504,61 @@
             addTrees();
         }
         
-        // Tworzenie samochodu
-        function createCar() {
+        // Tworzenie samochodu - przyjmuje kolor jako argument
+        function createCar(color) {
+            console.log("Tworzenie samochodu w kolorze:", color);
+            // Jeśli samochód już istnieje, usuwamy go
+            if (car) {
+                scene.remove(car);
+            }
             // Tworzymy grupę dla samochodu
             car = new THREE.Group();
             
+            // Definiujemy kolory
+            const colors = {
+                red: 0xff3333,
+                blue: 0x3366ff,
+                green: 0x33cc33,
+                yellow: 0xffcc00
+            };
+            
+            // Ustawiamy kolor na podstawie argumentu lub domyślny
+            const carColor = colors[color] || colors.red;
+            
             // Materiały
-            const bodyMaterial = new THREE.MeshStandardMaterial({ 
-                color: 0xff0000,
-                metalness: 0.8,
-                roughness: 0.2,
-                envMapIntensity: 1
+            const bodyMaterial = new THREE.MeshStandardMaterial({
+                color: carColor, // Używamy wybranego koloru
+                metalness: 0.4,
+                roughness: 0.2
             });
-            
-            const windowMaterial = new THREE.MeshStandardMaterial({ 
-                color: 0x87CEEB,
-                metalness: 0.9,
-                roughness: 0.1,
+
+             const windowMaterial = new THREE.MeshPhongMaterial({
+                color: 0x222222, // Ciemne szyby
                 transparent: true,
-                opacity: 0.7
+                opacity: 0.7,
+                shininess: 100
             });
-            
-            const wheelMaterial = new THREE.MeshStandardMaterial({ 
-                color: 0x222222,
-                metalness: 0.7,
-                roughness: 0.3
+
+            const wheelMaterial = new THREE.MeshPhongMaterial({
+                color: 0x111111, // Ciemne opony
+                shininess: 30
             });
-            
-            const chromeMaterial = new THREE.MeshStandardMaterial({ 
-                color: 0xffffff,
-                metalness: 1.0,
-                roughness: 0.1
-            });
-            
-            const headlightMaterial = new THREE.MeshStandardMaterial({ 
-                color: 0xffffff,
-                emissive: 0xffffff,
-                emissiveIntensity: 1.0
-            });
-            
-            const exhaustMaterial = new THREE.MeshStandardMaterial({ 
-                color: 0x333333,
+
+            const chromeMaterial = new THREE.MeshStandardMaterial({
+                color: 0xcccccc, // Chromowane elementy
                 metalness: 0.9,
+                roughness: 0.2
+            });
+
+            const headlightMaterial = new THREE.MeshStandardMaterial({
+                color: 0xffffcc, // Jasne światła
+                emissive: 0xffffcc,
+                emissiveIntensity: 0.7
+            });
+
+            const exhaustMaterial = new THREE.MeshStandardMaterial({
+                color: 0x333333, // Wydech
+                metalness: 0.8,
                 roughness: 0.3
             });
             
@@ -568,7 +710,8 @@
             // Pozycja samochodu
             car.position.set(0, 0.75, 0);
             scene.add(car);
-            isInitialized = true;
+            // isInitialized = true; // Inicjalizacja dzieje się w initGame
+            return car; // Zwracamy stworzony samochód
         }
         
         // Tworzenie przeszkody
@@ -755,7 +898,100 @@
             exhaustParticlesSystem.geometry.attributes.position.needsUpdate = true;
         }
 
-        // Zaktualizowana pętla animacji dla chmur i cząsteczek
+        // Tworzenie systemu cząsteczek deszczu
+        function createRainParticles() {
+            const positions = [];
+            const velocities = [];
+            const rainMaterial = new THREE.PointsMaterial({
+                color: 0xaaaaaa,
+                size: 0.15, // Lekko zwiększamy rozmiar
+                transparent: true,
+                opacity: 0.6, // Lekko zmniejszamy opacity dla subtelniejszego efektu
+                sizeAttenuation: true
+            });
+
+            const rainGeometry = new THREE.BufferGeometry();
+
+            for (let i = 0; i < particleCount; i++) {
+                // Zmniejszamy rozrzut X i Z, aby deszcz był bliżej
+                positions.push(
+                    (Math.random() - 0.5) * 50,  // X (mniejszy zakres)
+                    Math.random() * 100 + 50,   // Y
+                    (Math.random() - 0.5) * 500 // Z (znacznie mniejszy zakres początkowy)
+                );
+                velocities.push(
+                    0,
+                    -Math.random() * 2 - 1.5, // Nieco szybszy deszcz
+                    0
+                );
+            }
+
+            rainGeometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+            rainGeometry.setAttribute('velocity', new THREE.Float32BufferAttribute(velocities, 3));
+
+            rainParticlesSystem = new THREE.Points(rainGeometry, rainMaterial);
+            rainParticlesSystem.visible = false; // Na początku niewidoczne
+            scene.add(rainParticlesSystem);
+            console.log("Stworzono system cząsteczek deszczu.");
+        }
+
+        // Tworzenie systemu cząsteczek śniegu
+        function createSnowParticles() {
+            const positions = [];
+            const velocities = [];
+            const snowMaterial = new THREE.PointsMaterial({
+                color: 0xffffff,
+                size: 0.3, // Znacznie zwiększamy rozmiar płatków
+                transparent: true,
+                opacity: 0.9, // Zwiększamy widoczność
+                sizeAttenuation: true,
+                map: createSnowflakeTexture()
+            });
+
+            const snowGeometry = new THREE.BufferGeometry();
+
+            for (let i = 0; i < particleCount; i++) {
+                 // Zmniejszamy rozrzut Z, aby śnieg był bliżej
+                positions.push(
+                    (Math.random() - 0.5) * 80,  // X (trochę szerszy niż deszcz)
+                    Math.random() * 100 + 50,   // Y
+                    (Math.random() - 0.5) * 500 // Z (znacznie mniejszy zakres początkowy)
+                );
+                velocities.push(
+                    (Math.random() - 0.5) * 0.2,
+                    -Math.random() * 0.5 - 0.2,
+                    (Math.random() - 0.5) * 0.1
+                );
+            }
+
+            snowGeometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+            snowGeometry.setAttribute('velocity', new THREE.Float32BufferAttribute(velocities, 3));
+
+            snowParticlesSystem = new THREE.Points(snowGeometry, snowMaterial);
+            snowParticlesSystem.visible = false; // Na początku niewidoczne
+            scene.add(snowParticlesSystem);
+            console.log("Stworzono system cząsteczek śniegu.");
+        }
+
+        // Funkcja tworząca teksturę płatka śniegu
+        function createSnowflakeTexture() {
+            const canvas = document.createElement('canvas');
+            canvas.width = 32;
+            canvas.height = 32;
+            const ctx = canvas.getContext('2d');
+            
+            const gradient = ctx.createRadialGradient(16, 16, 0, 16, 16, 16);
+            gradient.addColorStop(0, 'rgba(255, 255, 255, 1)');
+            gradient.addColorStop(0.5, 'rgba(255, 255, 255, 0.7)');
+            gradient.addColorStop(1, 'rgba(255, 255, 255, 0)');
+            
+            ctx.fillStyle = gradient;
+            ctx.fillRect(0, 0, 32, 32);
+            
+            return new THREE.CanvasTexture(canvas);
+        }
+
+        // Zaktualizowana pętla animacji dla chmur, cząsteczek i pogody
         function animate() {
             requestAnimationFrame(animate);
 
@@ -783,22 +1019,26 @@
                 currentSpeed = Math.floor(300 * gameSpeed);
 
                 // Aktualizacja pozycji instancji drzew
-                treeInstances.forEach(instance => {
-                    const matrix = new THREE.Matrix4();
-                    for (let i = 0; i < instance.count; i++) {
-                        instance.getMatrixAt(i, matrix);
-                        const position = new THREE.Vector3();
-                        position.setFromMatrixPosition(matrix);
-                        position.z -= moveAmount * 100 * delta;
-                        
-                        if (position.z < -50) {
-                            position.z += 2000;
+                treeInstances.forEach(instanceGroup => {
+                    instanceGroup.forEach(instanceMesh => {
+                        if (instanceMesh) {
+                            const matrix = new THREE.Matrix4();
+                            for (let i = 0; i < instanceMesh.count; i++) {
+                                instanceMesh.getMatrixAt(i, matrix);
+                                const position = new THREE.Vector3();
+                                position.setFromMatrixPosition(matrix);
+                                position.z -= moveAmount * 100 * delta;
+                                
+                                if (position.z < -50) {
+                                    position.z += 2000;
+                                }
+                                
+                                matrix.setPosition(position);
+                                instanceMesh.setMatrixAt(i, matrix);
+                            }
+                            instanceMesh.instanceMatrix.needsUpdate = true;
                         }
-                        
-                        matrix.setPosition(position);
-                        instance.setMatrixAt(i, matrix);
-                    }
-                    instance.instanceMatrix.needsUpdate = true;
+                    });
                 });
 
                 // Aktualizacja pozycji chmur - wolniejszy ruch dla efektu paralaksy
@@ -853,6 +1093,9 @@
 
                 // Aktualizacja tylko systemu cząsteczek spalin
                 updateExhaustParticles(delta);
+
+                // Aktualizacja systemu pogody
+                updateWeatherParticles(delta);
             }
 
             renderer.render(scene, camera);
@@ -861,6 +1104,9 @@
         // Koniec gry
         function gameOver() {
             isGameOver = true;
+
+            // Wywołanie wibracji przy kolizji
+            vibrate(200); // Wibracja przez 200ms
 
             if (engineSound) {
                 try {
@@ -892,6 +1138,14 @@
         
         // Restart gry
         function restartGame() {
+            // Ukrywamy ekran końca gry
+            document.getElementById('gameOver').style.display = 'none';
+            // Pokazujemy ekran startowy
+            document.getElementById('startScreen').style.display = 'flex';
+            // Ukrywamy UI gry
+            document.getElementById('info').style.display = 'none';
+            document.getElementById('instructions').style.display = 'none';
+
             // Usunięcie wszystkich przeszkód
             for (let i = obstacles.length - 1; i >= 0; i--) {
                 scene.remove(obstacles[i].mesh);
@@ -931,38 +1185,74 @@
             // Utworzenie początkowych chmur
             createClouds();
 
-            // Ponowne uruchomienie dźwięku silnika
+            // Zatrzymujemy dźwięk silnika, jeśli grał
             if (engineSound) {
                 try {
-                    engineSound.play();
+                    engineSound.pause();
+                    engineSound.currentTime = 0; // Resetuj czas odtwarzania
                 } catch (error) {
-                    console.error('Błąd podczas uruchamiania dźwięku silnika:', error);
+                    console.error('Błąd podczas zatrzymywania dźwięku silnika przy restarcie:', error);
                 }
             }
+
+            // Reset flag gry
+            isGameStarted = false; // Gra jeszcze nie wystartowała
         }
         
         // Start gry
         function startGame() {
-            // Pytanie o imię gracza
-            playerName = prompt("Podaj swoje imię:", "Gracz");
-            if (!playerName) { // Jeśli gracz kliknie Anuluj lub zostawi puste
-                playerName = "Gracz";
+            // Pytanie o imię gracza - przywrócone
+            playerName = prompt("Podaj swoje imię:", playerName || "Gracz"); // Użyj poprzedniego lub domyślnego
+            if (!playerName || playerName.trim() === "") { // Sprawdzenie pustego stringa
+                playerName = "Gracz"; // Ustawienie domyślne, jeśli anulowano lub wpisano pusty
             }
 
-            isGameStarted = true;
+             // Tworzymy samochód z aktualnie wybranym kolorem
+            createCar(selectedCar);
+
+            // Ukrywamy ekran startowy
             document.getElementById('startScreen').style.display = 'none';
+            // Pokazujemy interfejs gry
+            document.getElementById('info').style.display = 'block';
+            document.getElementById('instructions').style.display = 'block';
             
             // Uruchomienie dźwięku silnika
             if (engineSound) {
                 try {
-                    engineSound.play();
+                    // Upewniamy się, że dźwięk jest załadowany przed odtworzeniem
+                    if (engineSound.readyState >= 2) { // HAVE_CURRENT_DATA
+                        engineSound.play();
+                    } else {
+                        // Jeśli nie jest załadowany, dodajemy listener
+                        engineSound.addEventListener('canplaythrough', () => {
+                            engineSound.play();
+                        }, { once: true }); // Listener jednorazowy
+                    }
                 } catch (error) {
                     console.error('Błąd podczas uruchamiania dźwięku silnika:', error);
                 }
             }
+             // Resetujemy stan gry na wszelki wypadek (jeśli restart nie był pełny)
+            isGameOver = false;
+            distance = 0;
+            score = 0;
+            gameSpeed = 0.2;
+            currentSpeed = 60;
+            difficultyModifier = 1;
+            obstacles = []; // Czyścimy przeszkody
+            timeSinceLastObstacle = 0;
+            clock = new THREE.Clock(); // Resetujemy zegar
+
+            // Ustawiamy flagę startu gry
+            isGameStarted = true;
+            console.log("Gra rozpoczęta z samochodem:", selectedCar);
+
+            // Rozpoczynamy pętlę animacji, jeśli jeszcze nie działa
+            // (zazwyczaj initGame ją uruchamia, ale dla pewności)
+            // animate(); // initGame już to robi
         }
         
-        // Obsługa klawiatury
+        // Obsługa klawiatury - dodajemy zmianę pogody
         function onKeyDown(event) {
             if (isGameOver) return;
 
@@ -978,6 +1268,16 @@
                     break;
                 case 'ArrowDown':
                     gameSpeed = Math.max(gameSpeed - 0.05, 0.1);
+                    break;
+                // Klawisze do zmiany pogody
+                case '1':
+                    setWeather('clear');
+                    break;
+                case '2':
+                    setWeather('rain');
+                    break;
+                case '3':
+                    setWeather('snow');
                     break;
             }
         }
@@ -1010,6 +1310,19 @@
             camera.updateProjectionMatrix();
             
             renderer.setSize(width, height);
+        }
+
+        // Funkcja wywołująca wibracje (jeśli obsługiwane)
+        function vibrate(duration) {
+            if ("vibrate" in navigator) {
+                try {
+                    navigator.vibrate(duration);
+                } catch (e) {
+                    console.warn("Wibracje nie są obsługiwane lub wystąpił błąd:", e);
+                }
+            } else {
+                console.log("Vibration API nie jest obsługiwane w tej przeglądarce.");
+            }
         }
 
         // Inicjalizacja gry
@@ -1048,25 +1361,139 @@
             
             // Tworzenie elementów gry
             createRoad();
-            createCar();
+            // createCar(); // Samochód tworzony jest teraz w startGame i przy wyborze koloru
             createClouds();
             
             // Dodajemy tylko system cząsteczek spalin
             createExhaustParticles();
+
+            // Tworzymy systemy cząsteczek pogody
+            createRainParticles();
+            createSnowParticles();
             
             // Rozpoczęcie animacji
             animate();
+
+            // Inicjalizacja zakończona
+            isInitialized = true; // Ustawiamy flagę inicjalizacji
+            console.log("Gra zainicjalizowana.");
         }
 
-        // Event listenery
-        window.addEventListener('resize', onWindowResize);
-        document.addEventListener('keydown', onKeyDown);
-        document.addEventListener('touchstart', onTouchStart); // Dodajemy listener dotyku
-        document.getElementById('restartButton').addEventListener('click', restartGame);
-        document.getElementById('startButton').addEventListener('click', startGame);
+        // Event listenery - przeniesione do DOMContentLoaded
+        // window.addEventListener('resize', onWindowResize);
+        // document.addEventListener('keydown', onKeyDown);
+        // document.addEventListener('touchstart', onTouchStart); // Dodajemy listener dotyku
+        // document.getElementById('restartButton').addEventListener('click', restartGame);
+        // document.getElementById('startButton').addEventListener('click', startGame);
 
-        // Rozpoczęcie gry
-        initGame();
+        // Rozpoczęcie gry - przeniesione do DOMContentLoaded
+        // initGame();
+
+        // Czekamy na załadowanie DOM przed dodaniem listenerów i inicjalizacją
+        document.addEventListener('DOMContentLoaded', () => {
+            console.log("DOM załadowany.");
+            // Inicjalizacja gry
+            initGame();
+
+            // Obsługa wyboru samochodu
+            const carOptions = document.querySelectorAll('.carOption');
+            carOptions.forEach(option => {
+                option.addEventListener('click', function() {
+                    // Usuń klasę 'selected' ze wszystkich opcji
+                    carOptions.forEach(opt => opt.classList.remove('selected'));
+                    // Dodaj klasę 'selected' do klikniętej opcji
+                    this.classList.add('selected');
+                    // Ustaw wybrany kolor samochodu
+                    selectedCar = this.getAttribute('data-car');
+                    console.log("Wybrano samochód:", selectedCar);
+                    // Opcjonalnie: można od razu zaktualizować model samochodu w tle
+                    // createCar(selectedCar); // Ale lepiej poczekać do startu gry
+                });
+            });
+
+            // Dodajemy pozostałe event listenery
+            window.addEventListener('resize', onWindowResize);
+            document.addEventListener('keydown', onKeyDown);
+            document.addEventListener('touchstart', onTouchStart);
+            document.getElementById('restartButton').addEventListener('click', restartGame);
+            document.getElementById('startButton').addEventListener('click', startGame);
+
+             console.log("Event listenery dodane.");
+        });
+
+        // Funkcja do ustawiania pogody
+        function setWeather(weatherType) {
+            currentWeather = weatherType;
+            console.log("Ustawiono pogodę na:", weatherType);
+
+            // Aktualizacja widoczności systemów cząsteczek
+            if (rainParticlesSystem) rainParticlesSystem.visible = (weatherType === 'rain');
+            if (snowParticlesSystem) snowParticlesSystem.visible = (weatherType === 'snow');
+
+            // Dostosowanie wyglądu sceny (np. światła, tło)
+            const ambientLight = scene.getObjectByName('ambientLight');
+            const directionalLight = scene.getObjectByName('directionalLight');
+            // const spotLight = scene.getObjectByName('spotLight'); // Jeśli mamy spotlight
+
+            if (weatherType === 'rain') {
+                scene.background = new THREE.Color(0x5a6a7a); // Ciemniejsze, szaro-niebieskie tło
+                if (ambientLight) ambientLight.intensity = 0.4;
+                if (directionalLight) directionalLight.intensity = 0.5;
+            } else if (weatherType === 'snow') {
+                scene.background = new THREE.Color(0x778899); // Ciemniejszy szary dla lepszego kontrastu śniegu
+                if (ambientLight) ambientLight.intensity = 0.4;
+                if (directionalLight) directionalLight.intensity = 0.5;
+            } else { // clear
+                scene.background = new THREE.Color(0x87CEEB); // Domyślne jasnoniebieskie tło
+                if (ambientLight) ambientLight.intensity = 0.6;
+                if (directionalLight) directionalLight.intensity = 0.8;
+            }
+
+             // Potencjalnie: Włączanie/wyłączanie dźwięków pogody
+        }
+
+        // Aktualizacja cząsteczek pogody
+        function updateWeatherParticles(delta) {
+            if (currentWeather === 'rain' && rainParticlesSystem) {
+                 updateParticles(rainParticlesSystem, delta, 150, -20); // Y reset, Y min
+            } else if (currentWeather === 'snow' && snowParticlesSystem) {
+                 updateParticles(snowParticlesSystem, delta, 150, -20);
+            }
+        }
+
+        // Ogólna funkcja do aktualizacji cząsteczek
+        function updateParticles(particleSystem, delta, yReset, yMin) {
+            const positions = particleSystem.geometry.attributes.position.array;
+            const velocities = particleSystem.geometry.attributes.velocity.array;
+
+            for (let i = 0; i < particleCount; i++) {
+                const index = i * 3;
+
+                positions[index] += velocities[index] * delta;     // Update X
+                positions[index + 1] += velocities[index + 1] * delta; // Update Y
+                positions[index + 2] += velocities[index + 2] * delta; // Update Z
+
+                // Reset cząsteczki, jeśli spadnie poniżej określonego poziomu
+                if (positions[index + 1] < yMin) {
+                    positions[index] = (Math.random() - 0.5) * 100;
+                    positions[index + 1] = yReset + Math.random() * 50; // Resetuj wysoko, z losowością
+                    positions[index + 2] = camera.position.z + (Math.random() - 0.5) * 1000; // Resetuj Z względem kamery
+                     // Dla śniegu można by też resetować prędkość, aby ruch był bardziej zróżnicowany
+                    if (particleSystem === snowParticlesSystem) {
+                         velocities[index] = (Math.random() - 0.5) * 0.2;      // vx
+                         velocities[index + 1] = -Math.random() * 0.5 - 0.2;   // vy
+                         velocities[index + 2] = (Math.random() - 0.5) * 0.1;   // vz
+                    }
+                }
+                // Dodajemy obsługę "zawijania" cząsteczek w osi Z względem kamery
+                if (positions[index + 2] < camera.position.z - 500) { // Zmniejszony zakres sprawdzania
+                    positions[index + 2] += 1000; // Zakres resetu Z
+                } else if (positions[index + 2] > camera.position.z + 500) {
+                     positions[index + 2] -= 1000;
+                }
+            }
+            particleSystem.geometry.attributes.position.needsUpdate = true;
+        }
     </script>
 </body>
 </html>
