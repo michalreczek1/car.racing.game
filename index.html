@@ -758,6 +758,25 @@
             }
         }
         
+        // Obsługa dotyku (mobilna)
+        function onTouchStart(event) {
+            if (isGameOver) return;
+
+            // Zapobiegaj domyślnym akcjom, np. przewijaniu
+            // event.preventDefault(); // Odkomentuj, jeśli powoduje problemy
+
+            const touchX = event.touches[0].clientX;
+            const screenWidth = window.innerWidth;
+
+            if (touchX < screenWidth / 2) {
+                // Dotknięcie lewej strony ekranu - ruch w lewo (jak ArrowLeft)
+                if (carPosition < 1) carPosition++;
+            } else {
+                // Dotknięcie prawej strony ekranu - ruch w prawo (jak ArrowRight)
+                if (carPosition > -1) carPosition--;
+            }
+        }
+        
         // Dostosowanie do zmiany rozmiaru okna
         function onWindowResize() {
             const width = window.innerWidth;
@@ -815,6 +834,7 @@
         // Event listenery
         window.addEventListener('resize', onWindowResize);
         document.addEventListener('keydown', onKeyDown);
+        document.addEventListener('touchstart', onTouchStart); // Dodajemy listener dotyku
         document.getElementById('restartButton').addEventListener('click', restartGame);
         document.getElementById('startButton').addEventListener('click', startGame);
 
